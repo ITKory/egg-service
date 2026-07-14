@@ -130,7 +130,6 @@ func runGameEngine(
 			return
 
 		case <-saveTicker.C:
-			log.Println("Periodic save...")
 			if err := state.Save(ctx); err != nil {
 				log.Printf("Periodic save failed: %v", err)
 			}
