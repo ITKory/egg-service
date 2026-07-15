@@ -100,10 +100,7 @@ func main() {
 func websocketAllowedOrigins() []string {
 	raw := os.Getenv("WS_ALLOWED_ORIGINS")
 	if raw == "" {
-		return []string{
-			"http://localhost:3000",
-			"http://127.0.0.1:3000",
-		}
+		return nil
 	}
 
 	parts := strings.Split(raw, ",")

@@ -82,6 +82,12 @@ func originChecker(allowedOrigins []string) func(*http.Request) bool {
 		}
 	}
 
+	if len(allowed) == 0 {
+		return func(*http.Request) bool {
+			return true
+		}
+	}
+
 	return func(r *http.Request) bool {
 		rawOrigin := strings.TrimSpace(r.Header.Get("Origin"))
 		if rawOrigin == "" {

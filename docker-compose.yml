@@ -25,7 +25,6 @@ services:
       - "48080:8080"
     environment:
       - REDIS_ADDR=redis:6379
-      - WS_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
     depends_on:
       - redis
     healthcheck:

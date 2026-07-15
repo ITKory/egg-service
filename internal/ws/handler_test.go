@@ -5,7 +5,19 @@ import (
 	"testing"
 )
 
-func TestOriginChecker(t *testing.T) {
+func TestOriginCheckerAllowsAllWhenAllowlistIsEmpty(t *testing.T) {
+	check := originChecker(nil)
+	request := &http.Request{
+		Host:   "api.example.com",
+		Header: http.Header{"Origin": []string{"https://frontend.example.com"}},
+	}
+
+	if !check(request) {
+		t.Fatal("originChecker() rejected origin without configured allowlist")
+	}
+}
+
+func TestOriginCheckerUsesConfiguredAllowlist(t *testing.T) {
 	check := originChecker([]string{"http://localhost:3000"})
 
 	tests := []struct {
