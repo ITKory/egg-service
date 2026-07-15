@@ -4,22 +4,41 @@ services:
   redis:
     image: redis:alpine
     container_name: chaos-egg-redis
+    restart: unless-stopped
     ports:
       - "16379:6379" 
     volumes:
       - redis-data:/data
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
     networks:
       - app-network
 
   backend:
     build: .
     container_name: chaos-egg-backend
+    restart: unless-stopped
     ports:
       - "48080:8080"
     environment:
       - REDIS_ADDR=redis:6379
+      - WS_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
     depends_on:
       - redis
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
     networks:
       - app-network
 

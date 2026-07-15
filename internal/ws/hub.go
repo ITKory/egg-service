@@ -3,7 +3,10 @@ package ws
 import (
 	"chaos-egg/internal/game"
 	"context"
+	"errors"
 )
+
+var ErrBroadcastQueueFull = errors.New("websocket hub broadcast queue is full")
 
 type registerRequest struct {
 	client *Client
@@ -23,10 +26,10 @@ type Hub struct {
 func NewHub(eventCh chan<- *Message) *Hub {
 	return &Hub{
 		clients:    make(map[*Client]bool),
-		register:   make(chan registerRequest),
-		unregister: make(chan *Client),
+		register:   make(chan registerRequest, 32),
+		unregister: make(chan *Client, 32),
 		broadcast:  make(chan []byte, 100),
-		presence:   make(chan chan game.PresenceSnapshot),
+		presence:   make(chan chan game.PresenceSnapshot, 16),
 		events:     eventCh,
 	}
 }
@@ -65,10 +68,20 @@ func (h *Hub) Run(ctx context.Context) {
 	}
 }
 
-func (h *Hub) Register(client *Client) game.PresenceSnapshot {
+func (h *Hub) Register(ctx context.Context, client *Client) (game.PresenceSnapshot, error) {
 	done := make(chan game.PresenceSnapshot, 1)
-	h.register <- registerRequest{client: client, done: done}
-	return <-done
+	select {
+	case h.register <- registerRequest{client: client, done: done}:
+	case <-ctx.Done():
+		return game.PresenceSnapshot{}, ctx.Err()
+	}
+
+	select {
+	case snapshot := <-done:
+		return snapshot, nil
+	case <-ctx.Done():
+		return game.PresenceSnapshot{}, ctx.Err()
+	}
 }
 
 func (h *Hub) Presence(ctx context.Context) (game.PresenceSnapshot, error) {
@@ -87,8 +100,13 @@ func (h *Hub) Presence(ctx context.Context) (game.PresenceSnapshot, error) {
 	}
 }
 
-func (h *Hub) Broadcast(data []byte) {
-	h.broadcast <- data
+func (h *Hub) Broadcast(data []byte) error {
+	select {
+	case h.broadcast <- data:
+		return nil
+	default:
+		return ErrBroadcastQueueFull
+	}
 }
 
 func (h *Hub) BroadcastJSON(msg Message) error {
@@ -96,20 +114,24 @@ func (h *Hub) BroadcastJSON(msg Message) error {
 	if err != nil {
 		return err
 	}
-	h.Broadcast(data)
-	return nil
+	return h.Broadcast(data)
 }
 
 func (h *Hub) broadcastPresence(snapshot game.PresenceSnapshot) {
-	data, err := Encode(Message{
-		Type: MessagePresence,
-		Data: NewPresencePayload(snapshot),
-	})
-	if err != nil {
-		return
-	}
+	for {
+		data, err := Encode(Message{
+			Type: MessagePresence,
+			Data: NewPresencePayload(snapshot),
+		})
+		if err != nil {
+			return
+		}
 
-	h.broadcastToClients(data)
+		if !h.broadcastToClients(data) {
+			return
+		}
+		snapshot = h.presenceSnapshot()
+	}
 }
 
 func (h *Hub) broadcastToClients(message []byte) bool {

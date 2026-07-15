@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -54,7 +55,9 @@ func main() {
 	mux.HandleFunc("/api/leaderboard", handlers.GetLeaderboard)
 	mux.HandleFunc("/health", healthHandler)
 	mux.HandleFunc("/click", handlers.Click)
-	mux.HandleFunc("/ws", ws.Handler(hub))
+	mux.HandleFunc("/ws", ws.Handler(hub, ws.HandlerConfig{
+		AllowedOrigins: websocketAllowedOrigins(),
+	}))
 
 	var handler http.Handler = mux
 
@@ -92,6 +95,26 @@ func main() {
 	}
 
 	log.Println("Server stopped")
+}
+
+func websocketAllowedOrigins() []string {
+	raw := os.Getenv("WS_ALLOWED_ORIGINS")
+	if raw == "" {
+		return []string{
+			"http://localhost:3000",
+			"http://127.0.0.1:3000",
+		}
+	}
+
+	parts := strings.Split(raw, ",")
+	origins := make([]string, 0, len(parts))
+	for _, part := range parts {
+		origin := strings.TrimSpace(part)
+		if origin != "" {
+			origins = append(origins, origin)
+		}
+	}
+	return origins
 }
 
 type wsEventPublisher struct {
