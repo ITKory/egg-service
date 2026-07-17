@@ -183,76 +183,6 @@ curl http://localhost:8080/api/leaderboard
   ]
 }
 ```
-
----
-
-## 🛠 Полный пример клиента на JavaScript
-
-```html
-<!DOCTYPE html>
-<html>
-<head>
-  <title>Chaos Egg Client</title>
-</head>
-<body>
-  <h1>Кликни яйцо!</h1>
-  <div id="counter">0</div>
-  <div id="username"></div>
-  <button id="clickBtn">Клик!</button>
-
-  <script>
-    const ws = new WebSocket('ws://localhost:8080/ws');
-    
-    let userId = null;
-    let username = null;
-
-    ws.onopen = () => {
-      console.log('Connected');
-    };
-
-    ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
-      
-      switch(msg.type) {
-        case 'welcome':
-          userId = msg.data.userId;
-          username = msg.data.username;
-          document.getElementById('username').textContent = 
-            `Вы: ${username} (${userId})`;
-          break;
-          
-        case 'state_update':
-          document.getElementById('counter').textContent = 
-            msg.data.clickCount;
-          break;
-          
-        case 'event':
-          alert(`🎉 СОБЫТИЕ: ${msg.data.message}`);
-          console.log(`Event ${msg.data.code} started for ${msg.data.duration}ms`);
-          break;
-      }
-    };
-
-    ws.onerror = (err) => {
-      console.error('WebSocket error:', err);
-    };
-
-    ws.onclose = () => {
-      console.log('Disconnected');
-      setTimeout(() => location.reload(), 3000); // Авто-реконнект
-    };
-
-    document.getElementById('clickBtn').addEventListener('click', () => {
-      ws.send(JSON.stringify({
-        type: 'click',
-        data: {}
-      }));
-    });
-  </script>
-</body>
-</html>
-```
-
 ---
 
 ## ⚠️ Важные замечания
@@ -362,20 +292,4 @@ type OutgoingMessage = Message<{}>;
 | Rate Limit | 50ms | Минимальный интервал между кликами |
 | Event Trigger | 100 кликов | Частота срабатывания событий |
 
----
 
-## ❓ FAQ
-
-**Q: Как сохранить прогресс игрока?**  
-A: Сейчас прогресс не сохраняется между сессиями. `userId` временный.
-
-**Q: Можно ли отправить эмоцию?**  
-A: Тип `emote` зарезервирован, но пока не реализован.
-
-**Q: Что если Redis недоступен?**  
-A: Сервер упадёт с ошибкой при старте. Требуется работающий Redis.
-
-**Q: Как часто приходят обновления состояния?**  
-A: После каждого успешного клика (любому игроку).
-
----
