@@ -2,11 +2,13 @@ package api
 
 import (
 	"chaos-egg/internal/game"
+	"chaos-egg/internal/logging"
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
 	"net/http"
+
+	"go.uber.org/zap"
 )
 
 type StateReader interface {
@@ -35,6 +37,7 @@ type Handlers struct {
 	leaderboard LeaderboardReader
 	clicks      ClickProcessor
 	presence    PresenceReader
+	logger      *zap.Logger
 }
 
 func NewHandlers(
@@ -43,13 +46,19 @@ func NewHandlers(
 	leaderboard LeaderboardReader,
 	clicks ClickProcessor,
 	presence PresenceReader,
+	logger *zap.Logger,
 ) *Handlers {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+
 	return &Handlers{
 		state:       state,
 		events:      events,
 		leaderboard: leaderboard,
 		clicks:      clicks,
 		presence:    presence,
+		logger:      logger,
 	}
 }
 
@@ -76,12 +85,15 @@ type connectedUserResponse struct {
 func (h *Handlers) GetState(w http.ResponseWriter, r *http.Request) {
 	presence, err := h.presence.Presence(r.Context())
 	if err != nil {
-		log.Printf("Failed to get presence: %v", err)
+		h.logger.Error("failed to get presence",
+			logging.Error(err),
+			logging.ErrorLevelField(logging.ErrorLevelRecoverable),
+		)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, stateResponse{
+	h.writeJSON(w, http.StatusOK, stateResponse{
 		Clicks:         h.state.GetClicks(),
 		ActiveEvent:    h.events.GetActiveEvent(),
 		ConnectedUsers: presence.ConnectedUsers,
@@ -92,12 +104,15 @@ func (h *Handlers) GetState(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) GetLeaderboard(w http.ResponseWriter, r *http.Request) {
 	entries, err := h.leaderboard.GetLeaderboard(r.Context(), 10)
 	if err != nil {
-		log.Printf("Failed to get leaderboard: %v", err)
+		h.logger.Error("failed to get leaderboard",
+			logging.Error(err),
+			logging.ErrorLevelField(logging.ErrorLevelRecoverable),
+		)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, leaderboardResponse{Leaderboard: entries})
+	h.writeJSON(w, http.StatusOK, leaderboardResponse{Leaderboard: entries})
 }
 
 func (h *Handlers) Click(w http.ResponseWriter, r *http.Request) {
@@ -107,12 +122,15 @@ func (h *Handlers) Click(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		log.Printf("Failed to process click: %v", err)
+		h.logger.Error("failed to process click",
+			logging.Error(err),
+			logging.ErrorLevelField(logging.ErrorLevelRecoverable),
+		)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, clickResponse{Clicks: result.NewCount})
+	h.writeJSON(w, http.StatusOK, clickResponse{Clicks: result.NewCount})
 }
 
 func connectedUserResponses(users []game.ConnectedUser) []connectedUserResponse {
@@ -127,11 +145,14 @@ func connectedUserResponses(users []game.ConnectedUser) []connectedUserResponse 
 	return response
 }
 
-func writeJSON(w http.ResponseWriter, status int, data any) {
+func (h *Handlers) writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 
 	if err := json.NewEncoder(w).Encode(data); err != nil {
-		log.Printf("Failed to encode JSON: %v", err)
+		h.logger.Error("failed to encode json response",
+			logging.Error(err),
+			logging.ErrorLevelField(logging.ErrorLevelRecoverable),
+		)
 	}
 }

@@ -1,10 +1,11 @@
 package ws
 
 import (
-	"log"
+	"chaos-egg/internal/logging"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"go.uber.org/zap"
 )
 
 const (
@@ -36,12 +37,18 @@ func (c *Client) ReadPump() {
 	defer func() {
 		c.hub.unregister <- c
 		c.conn.Close()
-		log.Printf("Client disconnected: %s (%s)", c.Username, c.UserID)
+		c.hub.logger.Info("websocket client disconnected",
+			zap.String("user_id", c.UserID),
+			zap.String("username", c.Username),
+		)
 	}()
 
 	c.conn.SetReadLimit(maxMessageSize)
 	if err := c.conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
-		log.Printf("WebSocket read deadline error: %v", err)
+		c.hub.logger.Error("websocket read deadline failed",
+			logging.Error(err),
+			logging.ErrorLevelField(logging.ErrorLevelCritical),
+		)
 		return
 	}
 	c.conn.SetPongHandler(func(string) error {
@@ -54,14 +61,22 @@ func (c *Client) ReadPump() {
 			if websocket.IsUnexpectedCloseError(err,
 				websocket.CloseGoingAway,
 				websocket.CloseAbnormalClosure) {
-				log.Printf("WebSocket error: %v", err)
+				c.hub.logger.Warn("unexpected websocket close",
+					logging.Error(err),
+					logging.ErrorLevelField(logging.ErrorLevelRecoverable),
+					zap.String("user_id", c.UserID),
+				)
 			}
 			break
 		}
 
 		msg, err := Decode(message)
 		if err != nil {
-			log.Printf("Invalid message: %v", err)
+			c.hub.logger.Warn("invalid websocket message",
+				logging.Error(err),
+				logging.ErrorLevelField(logging.ErrorLevelExpected),
+				zap.String("user_id", c.UserID),
+			)
 			continue
 		}
 
@@ -71,7 +86,11 @@ func (c *Client) ReadPump() {
 		select {
 		case c.hub.events <- msg:
 		default:
-			log.Printf("Event channel full, dropping message from %s", c.UserID)
+			c.hub.logger.Warn("event channel full, dropping websocket message",
+				logging.ErrorLevelField(logging.ErrorLevelRecoverable),
+				zap.String("user_id", c.UserID),
+				zap.String("message_type", string(msg.Type)),
+			)
 		}
 	}
 }
@@ -87,7 +106,11 @@ func (c *Client) WritePump() {
 		select {
 		case message, ok := <-c.send:
 			if err := c.conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
-				log.Printf("WebSocket write deadline error: %v", err)
+				c.hub.logger.Error("websocket write deadline failed",
+					logging.Error(err),
+					logging.ErrorLevelField(logging.ErrorLevelCritical),
+					zap.String("user_id", c.UserID),
+				)
 				return
 			}
 			if !ok {
@@ -95,17 +118,29 @@ func (c *Client) WritePump() {
 				return
 			}
 			if err := c.conn.WriteMessage(websocket.TextMessage, message); err != nil {
-				log.Printf("WebSocket write error: %v", err)
+				c.hub.logger.Warn("websocket write failed",
+					logging.Error(err),
+					logging.ErrorLevelField(logging.ErrorLevelRecoverable),
+					zap.String("user_id", c.UserID),
+				)
 				return
 			}
 
 		case <-ticker.C:
 			if err := c.conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
-				log.Printf("WebSocket ping deadline error: %v", err)
+				c.hub.logger.Error("websocket ping deadline failed",
+					logging.Error(err),
+					logging.ErrorLevelField(logging.ErrorLevelCritical),
+					zap.String("user_id", c.UserID),
+				)
 				return
 			}
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-				log.Printf("WebSocket ping error: %v", err)
+				c.hub.logger.Warn("websocket ping failed",
+					logging.Error(err),
+					logging.ErrorLevelField(logging.ErrorLevelRecoverable),
+					zap.String("user_id", c.UserID),
+				)
 				return
 			}
 		}

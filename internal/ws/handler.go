@@ -1,17 +1,18 @@
 package ws
 
 import (
+	"chaos-egg/internal/logging"
 	"chaos-egg/internal/user"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"log"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"go.uber.org/zap"
 )
 
 type HandlerConfig struct {
@@ -28,7 +29,11 @@ func Handler(hub *Hub, config HandlerConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			log.Printf("WebSocket upgrade error: %v", err)
+			hub.logger.Warn("websocket upgrade failed",
+				logging.Error(err),
+				logging.ErrorLevelField(logging.ErrorLevelExpected),
+				zap.String("remote_addr", r.RemoteAddr),
+			)
 			return
 		}
 
@@ -40,7 +45,12 @@ func Handler(hub *Hub, config HandlerConfig) http.HandlerFunc {
 		defer cancel()
 		snapshot, err := hub.Register(registerCtx, client)
 		if err != nil {
-			log.Printf("WebSocket register error: %v", err)
+			hub.logger.Error("websocket register failed",
+				logging.Error(err),
+				logging.ErrorLevelField(logging.ErrorLevelRecoverable),
+				zap.String("user_id", userID),
+				zap.String("username", username),
+			)
 			_ = conn.Close()
 			return
 		}
@@ -56,7 +66,7 @@ func Handler(hub *Hub, config HandlerConfig) http.HandlerFunc {
 			},
 		})
 
-		_ = hub.BroadcastJSON(Message{
+		if err := hub.BroadcastJSON(Message{
 			Type: MessageUserConnected,
 			Data: UserPayload{
 				UserID:         userID,
@@ -64,9 +74,18 @@ func Handler(hub *Hub, config HandlerConfig) http.HandlerFunc {
 				ConnectedUsers: presence.ConnectedUsers,
 				Users:          presence.Users,
 			},
-		})
+		}); err != nil {
+			hub.logger.Warn("websocket user connected broadcast failed",
+				logging.Error(err),
+				logging.ErrorLevelField(logging.ErrorLevelRecoverable),
+				zap.String("user_id", userID),
+			)
+		}
 
-		log.Printf("Client connected: %s (%s)", username, userID)
+		hub.logger.Info("websocket client connected",
+			zap.String("user_id", userID),
+			zap.String("username", username),
+		)
 
 		go client.ReadPump()
 		go client.WritePump()

@@ -3,10 +3,11 @@ package api
 import (
 	"bufio"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 type statusRecorder struct {
@@ -30,7 +31,11 @@ func (rec *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return hijacker.Hijack()
 }
 
-func Logger(next http.Handler) http.Handler {
+func Logger(next http.Handler, logger *zap.Logger) http.Handler {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
@@ -39,6 +44,21 @@ func Logger(next http.Handler) http.Handler {
 		next.ServeHTTP(rec, r)
 
 		duration := time.Since(start)
-		log.Printf("[%d] %s %s %v", rec.status, r.Method, r.URL.Path, duration)
+		fields := []zap.Field{
+			zap.Int("status", rec.status),
+			zap.String("method", r.Method),
+			zap.String("path", r.URL.Path),
+			zap.Duration("duration", duration),
+			zap.String("remote_addr", r.RemoteAddr),
+		}
+
+		switch {
+		case rec.status >= http.StatusInternalServerError:
+			logger.Error("http request completed", fields...)
+		case rec.status >= http.StatusBadRequest:
+			logger.Warn("http request completed", fields...)
+		default:
+			logger.Info("http request completed", fields...)
+		}
 	})
 }

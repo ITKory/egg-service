@@ -2,7 +2,7 @@ package game
 
 import (
 	"context"
-	"log"
+	"fmt"
 	"math/rand"
 	"sync"
 	"time"
@@ -25,20 +25,37 @@ type EventPublisher interface {
 	PublishEvent(EventNotification) error
 }
 
+type Logger interface {
+	Info(message string)
+	Error(message string, err error)
+}
+
+type noopLogger struct{}
+
+func (noopLogger) Info(string)         {}
+func (noopLogger) Error(string, error) {}
+
 type EventEngine struct {
 	publisher   EventPublisher
+	logger      Logger
 	mu          sync.RWMutex
 	activeEvent *ActiveEvent
 }
 
-func NewEventEngine(publisher EventPublisher) *EventEngine {
+func NewEventEngine(publisher EventPublisher, loggers ...Logger) *EventEngine {
+	logger := Logger(noopLogger{})
+	if len(loggers) > 0 && loggers[0] != nil {
+		logger = loggers[0]
+	}
+
 	return &EventEngine{
 		publisher: publisher,
+		logger:    logger,
 	}
 }
 
 func (e *EventEngine) Run(ctx context.Context) {
-	log.Println("Event Engine started")
+	e.logger.Info("event engine started")
 
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -46,7 +63,7 @@ func (e *EventEngine) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("Event Engine stopping...")
+			e.logger.Info("event engine stopping")
 			return
 
 		case <-ticker.C:
@@ -88,7 +105,7 @@ func (e *EventEngine) startRandomEvent() {
 	}
 	e.mu.Unlock()
 
-	log.Printf("EVENT STARTED: %s (ends at %s)", def.Name, expiresAt.Format("15:04:05"))
+	e.logger.Info(fmt.Sprintf("event started: %s (ends at %s)", def.Name, expiresAt.Format("15:04:05")))
 
 	e.publish(EventNotification{
 		Type:            "event_start",
@@ -110,7 +127,7 @@ func (e *EventEngine) endEvent() {
 	e.activeEvent = nil
 	e.mu.Unlock()
 
-	log.Printf("EVENT ENDED: %s", name)
+	e.logger.Info(fmt.Sprintf("event ended: %s", name))
 
 	e.publish(EventNotification{
 		Type: "event_end",
@@ -134,6 +151,6 @@ func (e *EventEngine) publish(notification EventNotification) {
 	}
 
 	if err := e.publisher.PublishEvent(notification); err != nil {
-		log.Printf("Event publish failed: %v", err)
+		e.logger.Error("event publish failed", err)
 	}
 }

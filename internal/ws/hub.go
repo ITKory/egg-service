@@ -4,6 +4,8 @@ import (
 	"chaos-egg/internal/game"
 	"context"
 	"errors"
+
+	"go.uber.org/zap"
 )
 
 var ErrBroadcastQueueFull = errors.New("websocket hub broadcast queue is full")
@@ -21,9 +23,15 @@ type Hub struct {
 	presence   chan chan game.PresenceSnapshot
 
 	events chan<- *Message
+	logger *zap.Logger
 }
 
-func NewHub(eventCh chan<- *Message) *Hub {
+func NewHub(eventCh chan<- *Message, loggers ...*zap.Logger) *Hub {
+	logger := zap.NewNop()
+	if len(loggers) > 0 && loggers[0] != nil {
+		logger = loggers[0]
+	}
+
 	return &Hub{
 		clients:    make(map[*Client]bool),
 		register:   make(chan registerRequest, 32),
@@ -31,6 +39,7 @@ func NewHub(eventCh chan<- *Message) *Hub {
 		broadcast:  make(chan []byte, 100),
 		presence:   make(chan chan game.PresenceSnapshot, 16),
 		events:     eventCh,
+		logger:     logger,
 	}
 }
 
